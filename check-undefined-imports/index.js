@@ -1,42 +1,40 @@
-function helpers(babelTypes) {
-  const t = babelTypes
-  const h = {
-    checkImport(importSpecifier, fileName) {
-      const importedVar = importSpecifier.local
-      const isDefaultImport = t.isImportDefaultSpecifier(importSpecifier)
-      const importName = importedVar.name
-      const importType = isDefaultImport ? 'default' : 'named'
-      const errorMessage = `Undefined ${importType} import ${importName} from '${fileName}'!`
-      return t.ifStatement(
-        h.undefinedCheckExpression(importedVar),
-        t.throwStatement(t.newExpression(
-          t.identifier('Error'),
-          [t.stringLiteral(errorMessage)]
-        ))
-      )
-    },
+const t = require('babel-types')
 
-    undefinedCheckExpression(ident) {
-      if (!t.isIdentifier(ident)) throw new Error('Not an identifier!')
-      return t.binaryExpression(
-        '===',
-        t.unaryExpression('typeof', ident),
-        t.stringLiteral('undefined')
-      )
-    },
-  }
-  return h
+function buildImportCheck(importSpecifier, importFrom, fileName) {
+  const importedVar = importSpecifier.local
+
+  const isDefaultImport = t.isImportDefaultSpecifier(importSpecifier)
+  const importName = importedVar.name
+  const importType = isDefaultImport ? 'default' : 'named'
+  const errorMessage = `Undefined ${importType} import '${importName}' from '${importFrom}' in file '${fileName}'`
+
+  return t.ifStatement(
+    t.binaryExpression(
+      '===',
+      t.unaryExpression('typeof', importedVar),
+      t.stringLiteral('undefined')
+    ),
+    t.throwStatement(t.newExpression(
+      t.identifier('Error'),
+      [t.stringLiteral(errorMessage)]
+    ))
+  )
 }
 
-export default function ({types}) {
-  const h = helpers(types)
-
+module.exports = function () {
   return {
     visitor: {
       ImportDeclaration(path) {
-        const importedFile = path.node.source.value
         const imports = path.node.specifiers
-        path.insertAfter(imports.map((imp) => h.checkImport(imp, importedFile)))
+        const importFrom = path.node.source.value
+        const currentFile = this.file.opts.filename
+
+        const importChecks = imports.map(specifier => {
+          const bic = buildImportCheck(specifier, importFrom, currentFile)
+          bic.loc = specifier.loc
+          return bic
+        })
+        path.insertAfter(importChecks)
       },
     },
   }
